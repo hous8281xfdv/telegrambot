@@ -16,80 +16,59 @@ DEEPSEEK_KEY = "sk-aebbd973b0964ae688f40ae1974792fc"
 
 bot = telebot.TeleBot(TOKEN, threaded=False)
 
-WELCOME_TEXT = """🚀 *БОТ-ГЕНЕРАТОР ЛЕНДИНГОВ*
+WELCOME_TEXT = """🚀 *БОТ-ГЕНЕРАТОР ЛЕНДИНГОВ + ЧАТ*
 
-Привет! Я создаю красивые лендинги за 30 секунд!
+Привет! Я умею ДВЕ вещи:
 
-📝 *Что нужно сделать:*
-1. Напишите *для чего* вам сайт
-2. Укажите *цветовую гамму* (опционально)
-3. Получите готовый HTML-код!
+🤖 *Просто пообщаться* — пиши что хочешь, я отвечу
+🎨 *Создать лендинг* — напиши «Сделай лендинг для...»
 
-📋 *Примеры запросов:*
+📋 *Примеры:*
+• «Привет, как дела?»
 • «Сделай лендинг для пиццерии»
+• «Расскажи анекдот»
 • «Сайт для стоматологии, синий цвет»
-• «Лендинг для курсов английского, яркий стиль»
-• «Сайт для свадебного фотографа»
 
 ⚡️ Работает быстро и БЕСПЛАТНО!"""
 
-HELP_TEXT = """📖 *КАК РАБОТАТЬ:*
-
-1️⃣ Напишите цель вашего лендинга
-2️⃣ Добавьте пожелания по дизайну
-3️⃣ Получите готовый HTML код
-
-🎨 *Примеры:*
-• «Красивый лендинг для доставки суши»
-• «Сайт для фитнес-клуба, тёмный стиль»
-• «Лендинг для онлайн-школы, светлый»
-
-💡 Чем подробнее опишете — тем лучше результат!"""
-
-def generate_landing(prompt):
+def ask_deepseek(prompt, is_landing=False):
+    """Универсальный запрос к DeepSeek"""
     url = "https://api.deepseek.com/v1/chat/completions"
     headers = {
         "Authorization": f"Bearer {DEEPSEEK_KEY}",
         "Content-Type": "application/json"
     }
     
-    system_prompt = """Ты — профессиональный веб-дизайнер и разработчик. 
-Создавай красивые, современные лендинги в одном HTML-файле.
-
-Требования:
-1. ВСЁ в одном HTML-файле (CSS внутри <style>)
-2. Современный дизайн с градиентами, тенями, анимациями
-3. Адаптивность под все экраны
-4. Контактная информация, кнопка "Связаться" или "Заказать"
-5. Используй эмодзи для украшения
-6. Чистый, читаемый код
-
-ОТВЕЧАЙ ТОЛЬКО HTML-КОДОМ, БЕЗ ЛИШНИХ СЛОВ!"""
-    
-    user_prompt = f"""Создай современный лендинг для: {prompt}
-
-Сделай стильным, красивым, с градиентами и анимациями.
-Обязательно добавь кнопку призыва к действию.
-Код должен быть полностью рабочим."""
+    if is_landing:
+        system_prompt = """Ты — профессиональный веб-дизайнер. 
+Создай КРАСИВЫЙ, СОВРЕМЕННЫЙ лендинг в одном HTML-файле.
+Используй градиенты, тени, анимации, адаптивность.
+Добавь кнопку "Заказать" или "Связаться".
+ОТВЕЧАЙ ТОЛЬКО HTML-КОДОМ! НИКАКИХ ОБЪЯСНЕНИЙ!"""
+    else:
+        system_prompt = """Ты — дружелюбный помощник. 
+Отвечай кратко, понятно, с эмодзи.
+Будь вежливым и полезным."""
 
     data = {
         "model": "deepseek-chat",
         "messages": [
             {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_prompt}
+            {"role": "user", "content": prompt}
         ],
-        "temperature": 0.7,
-        "max_tokens": 4000
+        "temperature": 0.7 if not is_landing else 0.8,
+        "max_tokens": 4000 if is_landing else 1000
     }
     
     try:
         response = requests.post(url, headers=headers, json=data, timeout=60)
         if response.status_code == 200:
             result = response.json()
-            html_code = result["choices"][0]["message"]["content"]
-            html_code = re.sub(r'```html\n?', '', html_code)
-            html_code = re.sub(r'```\n?', '', html_code)
-            return html_code
+            content = result["choices"][0]["message"]["content"]
+            if is_landing:
+                content = re.sub(r'```html\n?', '', content)
+                content = re.sub(r'```\n?', '', content)
+            return content
         else:
             logger.error(f"API Error: {response.status_code} - {response.text}")
             return None
@@ -105,43 +84,62 @@ def handle_messages(message):
     
     logger.info(f"📩 Сообщение от {chat_id}: {text}")
     
+    # --- КОМАНДЫ ---
     if text_lower in ["привет", "здравствуй", "здравствуйте", "старт", "/start", "hello", "hi", "ку", "даров"]:
         bot.send_message(chat_id, WELCOME_TEXT, parse_mode="Markdown")
         return
     
     if text_lower in ["помощь", "help", "/help", "что умеешь", "команды"]:
-        bot.send_message(chat_id, HELP_TEXT, parse_mode="Markdown")
+        bot.send_message(chat_id, WELCOME_TEXT, parse_mode="Markdown")
         return
     
-    if len(text) < 5:
-        bot.send_message(chat_id, "❌ *Слишком короткий запрос.*\n\nОпишите подробнее, для чего вам нужен лендинг.", parse_mode="Markdown")
+    # --- ГЕНЕРАЦИЯ ЛЕНДИНГА ---
+    if "лендинг" in text_lower or "сайт" in text_lower or "сделай" in text_lower:
+        if len(text) < 5:
+            bot.send_message(chat_id, "❌ *Слишком короткий запрос.*\n\nОпишите подробнее, для чего вам нужен сайт.", parse_mode="Markdown")
+            return
+        
+        status_msg = bot.send_message(chat_id, "⏳ *Генерирую лендинг...*\n\nDeepSeek работает, подожди 15-30 секунд.", parse_mode="Markdown")
+        
+        html_code = ask_deepseek(text, is_landing=True)
+        
+        if html_code and len(html_code) > 100:
+            filename = f"landing_{chat_id}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.html"
+            
+            with open(filename, "w", encoding="utf-8") as f:
+                f.write(html_code)
+            
+            bot.send_document(
+                chat_id,
+                open(filename, "rb"),
+                caption=f"✅ *Лендинг готов!*\n\n📝 Запрос: {text}\n\n💾 Сохраните файл и откройте в браузере.",
+                parse_mode="Markdown"
+            )
+            
+            bot.delete_message(chat_id, status_msg.message_id)
+            bot.send_message(chat_id, "🎉 *Готово!* Если хотите другой стиль — просто напишите новый запрос!", parse_mode="Markdown")
+            
+            import os
+            os.remove(filename)
+        else:
+            bot.edit_message_text(
+                "❌ *Ошибка генерации.*\n\nDeepSeek временно недоступен. Попробуйте через 1-2 минуты или переформулируйте запрос.\n\n💡 Пример: «Сделай красивый лендинг для доставки суши»",
+                chat_id,
+                status_msg.message_id,
+                parse_mode="Markdown"
+            )
         return
     
-    status_msg = bot.send_message(chat_id, "⏳ *Генерирую лендинг...*\n\nЭто займёт 15-30 секунд.", parse_mode="Markdown")
+    # --- ОБЫЧНОЕ ОБЩЕНИЕ ---
+    status_msg = bot.send_message(chat_id, "🤔 *Думаю...*", parse_mode="Markdown")
     
-    html_code = generate_landing(text)
+    response = ask_deepseek(text, is_landing=False)
     
-    if html_code:
-        filename = f"landing_{chat_id}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.html"
-        
-        with open(filename, "w", encoding="utf-8") as f:
-            f.write(html_code)
-        
-        bot.send_document(
-            chat_id,
-            open(filename, "rb"),
-            caption=f"✅ *Лендинг готов!*\n\n📝 Запрос: {text}\n\n💾 Сохраните файл и откройте в браузере.",
-            parse_mode="Markdown"
-        )
-        
-        bot.delete_message(chat_id, status_msg.message_id)
-        bot.send_message(chat_id, "🎉 *Готово!* Если хотите другой стиль — просто напишите новый запрос!", parse_mode="Markdown")
-        
-        import os
-        os.remove(filename)
+    if response:
+        bot.edit_message_text(response, chat_id, status_msg.message_id, parse_mode="Markdown")
     else:
         bot.edit_message_text(
-            "❌ *Ошибка генерации.*\n\nПопробуйте переформулировать запрос или написать подробнее.",
+            "😅 *Ой, я затупил!*\n\nDeepSeek временно недоступен. Попробуй через минуту или напиши что-то попроще.",
             chat_id,
             status_msg.message_id,
             parse_mode="Markdown"
@@ -210,51 +208,88 @@ class handler(BaseHTTPRequestHandler):
                 b_conn_id = b_msg.get("business_connection_id")
                 
                 if chat_id and b_conn_id and b_text:
-                    if len(b_text) < 5:
+                    text_lower = b_text.lower()
+                    
+                    if text_lower in ["привет", "здравствуй", "здравствуйте", "старт", "/start", "hello", "hi", "ку", "даров"]:
                         bot.send_message(
                             chat_id=chat_id,
-                            text="❌ *Слишком короткий запрос.*\n\nОпишите подробнее, для чего вам нужен лендинг.",
+                            text=WELCOME_TEXT,
                             parse_mode="Markdown",
                             business_connection_id=b_conn_id
                         )
                         return
                     
+                    if "лендинг" in text_lower or "сайт" in text_lower or "сделай" in text_lower:
+                        if len(b_text) < 5:
+                            bot.send_message(
+                                chat_id=chat_id,
+                                text="❌ *Слишком короткий запрос.*\n\nОпишите подробнее, для чего вам нужен сайт.",
+                                parse_mode="Markdown",
+                                business_connection_id=b_conn_id
+                            )
+                            return
+                        
+                        status_msg = bot.send_message(
+                            chat_id=chat_id,
+                            text="⏳ *Генерирую лендинг...*\n\nDeepSeek работает, подожди 15-30 секунд.",
+                            parse_mode="Markdown",
+                            business_connection_id=b_conn_id
+                        )
+                        
+                        html_code = ask_deepseek(b_text, is_landing=True)
+                        
+                        if html_code and len(html_code) > 100:
+                            filename = f"landing_{chat_id}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.html"
+                            
+                            with open(filename, "w", encoding="utf-8") as f:
+                                f.write(html_code)
+                            
+                            bot.send_document(
+                                chat_id=chat_id,
+                                document=open(filename, "rb"),
+                                caption=f"✅ *Лендинг готов!*\n\n📝 Запрос: {b_text}\n\n💾 Сохраните файл и откройте в браузере.",
+                                parse_mode="Markdown",
+                                business_connection_id=b_conn_id
+                            )
+                            
+                            bot.delete_message(chat_id, status_msg.message_id)
+                            bot.send_message(
+                                chat_id=chat_id,
+                                text="🎉 *Готово!* Если хотите другой стиль — просто напишите новый запрос!",
+                                parse_mode="Markdown",
+                                business_connection_id=b_conn_id
+                            )
+                            
+                            import os
+                            os.remove(filename)
+                        else:
+                            bot.edit_message_text(
+                                "❌ *Ошибка генерации.*\n\nDeepSeek временно недоступен. Попробуйте через 1-2 минуты или переформулируйте запрос.\n\n💡 Пример: «Сделай красивый лендинг для доставки суши»",
+                                chat_id,
+                                status_msg.message_id,
+                                parse_mode="Markdown"
+                            )
+                        return
+                    
                     status_msg = bot.send_message(
                         chat_id=chat_id,
-                        text="⏳ *Генерирую лендинг...*\n\nЭто займёт 15-30 секунд.",
+                        text="🤔 *Думаю...*",
                         parse_mode="Markdown",
                         business_connection_id=b_conn_id
                     )
                     
-                    html_code = generate_landing(b_text)
+                    response = ask_deepseek(b_text, is_landing=False)
                     
-                    if html_code:
-                        filename = f"landing_{chat_id}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.html"
-                        
-                        with open(filename, "w", encoding="utf-8") as f:
-                            f.write(html_code)
-                        
-                        bot.send_document(
-                            chat_id=chat_id,
-                            document=open(filename, "rb"),
-                            caption=f"✅ *Лендинг готов!*\n\n📝 Запрос: {b_text}\n\n💾 Сохраните файл и откройте в браузере.",
-                            parse_mode="Markdown",
-                            business_connection_id=b_conn_id
+                    if response:
+                        bot.edit_message_text(
+                            response,
+                            chat_id,
+                            status_msg.message_id,
+                            parse_mode="Markdown"
                         )
-                        
-                        bot.delete_message(chat_id, status_msg.message_id)
-                        bot.send_message(
-                            chat_id=chat_id,
-                            text="🎉 *Готово!* Если хотите другой стиль — просто напишите новый запрос!",
-                            parse_mode="Markdown",
-                            business_connection_id=b_conn_id
-                        )
-                        
-                        import os
-                        os.remove(filename)
                     else:
                         bot.edit_message_text(
-                            "❌ *Ошибка генерации.*\n\nПопробуйте переформулировать запрос или написать подробнее.",
+                            "😅 *Ой, я затупил!*\n\nDeepSeek временно недоступен. Попробуй через минуту или напиши что-то попроще.",
                             chat_id,
                             status_msg.message_id,
                             parse_mode="Markdown"
